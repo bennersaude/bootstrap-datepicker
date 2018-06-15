@@ -351,8 +351,38 @@
 		_buildEvents: function(){
             var events = {
                 keyup: $.proxy(function(e){
-                    if ($.inArray(e.keyCode, [27, 37, 39, 38, 40, 32, 13, 9]) === -1)
-                        this.update();
+                 		// [MOD] Added support for tracking keyboard entry
+                 		var context = this
+                 			, hasDateRangePicker = ("dateRangePicker" in context);
+
+                     if ($.inArray(e.keyCode, [27, 37, 39, 38, 40, 32, 13, 9]) === -1){
+                     	// let the date range picker know we're typing
+                     	if( hasDateRangePicker ) context.dateRangePicker.__is_typing = true;
+                     	context.update();
+                     	if( hasDateRangePicker ) delete context.dateRangePicker.__is_typing;
+                     }
+
+                     // after the user has finished typing, we need to make sure we trigger the
+                     // update() code again, so that all logic is processed
+                     if( context.__has_typed !== true ){
+                   		var oldDates = this.dates.copy();
+
+                     	context.__has_typed = true;
+                     	// when the user leaves the field, trigger a change event (even though the value might not have changed)
+                     	context.element.one("blur", function (){
+                     		// if the date has changed since the user started typing, trigger the change event
+                     		if( String(oldDates) !== String(context.dates) ){
+                     			context._trigger('changeDate')
+                     		}
+                     		// if the date has been removed, trigger the clearDate event
+                     		if( !context.dates.length && oldDates.length ){
+                     			context._trigger('clearDate')
+                     		}
+                     		// remove the flag, so we can set up again on a later update
+                     		delete context.__has_typed;
+                     	});
+                     }
+                 		// /[MOD]
                 }, this),
                 keydown: $.proxy(this.keydown, this),
                 paste: $.proxy(this.paste, this)
@@ -1562,6 +1592,9 @@
 	};
 
 	var DateRangePicker = function(element, options){
+		// [MOD] Added support for tracking keyboard entry
+		var context = this;
+
 		$(element).data('datepicker', this);
 		this.element = $(element);
 		this.inputs = $.map(options.inputs, function(i){
@@ -1573,7 +1606,12 @@
 			.on('changeDate', $.proxy(this.dateUpdated, this));
 
 		this.pickers = $.map(this.inputs, function(i){
-			return $(i).data('datepicker');
+       // [MOD] Added support for tracking keyboard entry
+ 			var data = $(i).data('datepicker');
+ 			data.dateRangePicker = context;
+
+ 			return data;
+       // /[MOD]
 		});
 		this.updateDates();
 	};
@@ -1614,23 +1652,31 @@
 			if (i === -1)
 				return;
 
-			$.each(this.pickers, function(i, p){
-				if (!p.getUTCDate())
-					p.setUTCDate(new_date);
-			});
+       // [MOD] Added support for tracking keyboard entry
+ 			// skip triggering the logic while the user is typing a date, this prevents issues
+ 			// where the user might be typing and a valid date was entered, but the user is not
+ 			// finished typing
+ 			if( this.__is_typing !== true ){
+ 				$.each(this.pickers, function(i, p){
+ 					if (!p.getUTCDate())
+ 						p.setUTCDate(new_date);
+ 				});
 
-			if (new_date < this.dates[j]){
-				// Date being moved earlier/left
-				while (j >= 0 && new_date < this.dates[j]){
-					this.pickers[j--].setUTCDate(new_date);
+ 				if (new_date < this.dates[j]){
+ 					// Date being moved earlier/left
+ 					while (j >= 0 && new_date < this.dates[j]){
+ 						this.pickers[j--].setUTCDate(new_date);
+ 					}
+ 				}
+ 				else if (new_date > this.dates[k]){
+ 					// Date being moved later/right
+ 					while (k < l && new_date > this.dates[k]){
+ 						this.pickers[k++].setUTCDate(new_date);
+ 					}
 				}
 			}
-			else if (new_date > this.dates[k]){
-				// Date being moved later/right
-				while (k < l && new_date > this.dates[k]){
-					this.pickers[k++].setUTCDate(new_date);
-				}
-			}
+			// /[MOD]
+			
 			this.updateDates();
 
 			delete this.updating;
